@@ -3,13 +3,14 @@ import asyncio
 import time
 import io
 import edge_tts
-import os 
 from PIL import Image
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, Response
 from openai import OpenAI
+import os
 
 app = Flask(__name__)
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
 def resize_image(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
     img.thumbnail((800, 800))
@@ -18,10 +19,10 @@ def resize_image(image_bytes):
     return buf.getvalue()
 
 def text_to_speech(text):
-    async def _speak():
+    async def _tts():
         tts = edge_tts.Communicate(text, voice="th-TH-NiwatNeural", rate="-20%")
         await tts.save("/tmp/output.mp3")
-    asyncio.run(_speak())
+    asyncio.run(_tts())
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -38,26 +39,31 @@ def analyze():
             "role": "user",
             "content": [
                 {"type": "input_text", "text": prompt},
-                {
-                    "type": "input_image",
-                    "image_url": f"data:image/jpeg;base64,{base64_image}"
-                }
+                {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"}
             ]
         }]
     )
-    print(f"AI ใช้เวลา: {time.time()-t1:.1f}s")
+    print(f"AI: {time.time()-t1:.1f}s")
 
     result = response.output_text
-    print("AI:", result)
+    print("Result:", result)
 
-    t2 = time.time()
     text_to_speech(result)
-    print(f"TTS ใช้เวลา: {time.time()-t2:.1f}s")
-
-    # ส่ง mp3 กลับไปให้ client เล่นเอง
     return send_file("/tmp/output.mp3", mimetype="audio/mpeg")
 
+@app.route("/tts", methods=["GET"])
+def tts():
+    text = request.args.get("text", "")
+    if not text:
+        return "no text", 400
+
+    async def _tts():
+        tts = edge_tts.Communicate(text, voice="th-TH-NiwatNeural", rate="-20%")
+        await tts.save("/tmp/tts.mp3")
+    asyncio.run(_tts())
+
+    return send_file("/tmp/tts.mp3", mimetype="audio/mpeg")
+
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
